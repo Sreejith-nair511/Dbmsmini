@@ -4,667 +4,627 @@
 
 ### Config/db.js
 ```javascript
-const mysql = require('mysql2');
+const { PrismaClient } = require('@prisma/client');
 
-require('dotenv').config();
+const prisma = new PrismaClient();
 
-const connection = mysql.createConnection({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3308,  // Make sure port is included
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'rootpassword',
-  database: process.env.DB_NAME || 'emergency_management_system'
-});
-
-connection.connect((err) => {
-  if (err) {
-    console.error('❌ Error connecting to MySQL:', err.message);
-    console.log('💡 Make sure Docker container is running: docker-compose up -d');
-  } else {
-    console.log('✅ Connected to MySQL Docker container successfully!');
-  }
-});
-
-module.exports = connection;
+module.exports = prisma;
 ```
 
-### Controllers/incidentController.js
+### Controllers/timerController.js
 ```javascript
-const db = require('../config/database');
+const prisma = require('../config/db');
 
-// Business logic for auto-assigning services
-const autoAssignService = (emergencyType) => {
-  const serviceMap = {
-    'Fire': 1,      // Fire Department
-    'Medical': 3,   // Ambulance Service
-    'Police': 2,    // Police Station
-    'Accident': 3,  // Ambulance
-    'Natural Disaster': 1, // Fire Department as first responder
-    'Other': 2      // Default to Police
-  };
-  return serviceMap[emergencyType] || 2;
-};
-
-const incidentController = {
-  // Report new incident
-  reportIncident: (req, res) => {
-    const { resident_id, emergency_type, description, location, user_name } = req.body;
-    
-    console.log('=== BACKEND RECEIVED DATA ===');
-    console.log('resident_id:', resident_id);
-    console.log('emergency_type:', emergency_type);
-    console.log('description:', description);
-    console.log('location:', location);
-    console.log('user_name:', user_name);
-    console.log('=============================');
-    
-    const service_id = autoAssignService(emergency_type);
-    
-    // Build the description that will be stored in database
-    let comprehensiveDescription = '';
-    
-    if (user_name) {
-      comprehensiveDescription += `Reported by: ${user_name}\n`;
+const timerController = {
+  // Get all timer sessions for a user
+  getSessions: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const sessions = await prisma.timerSession.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' }
+      });
+      res.json(sessions);
+    } catch (error) {
+      console.error('Error fetching sessions:', error);
+      res.status(500).json({ error: 'Failed to fetch sessions' });
     }
-    comprehensiveDescription += `Emergency Type: ${emergency_type}\n`;
-    comprehensiveDescription += `Location: ${location}\n`;
-    
-    // Add user description if provided
-    if (description && description !== 'User chose to skip description') {
-      comprehensiveDescription += `User Description: ${description}`;
-    } else {
-      comprehensiveDescription += `User Description: No additional details provided`;
-    }
-    
-    console.log('Storing description in DB:', comprehensiveDescription);
-    
-    const query = `
-      INSERT INTO Incident_Report 
-      (Resident_ID, Description, Emergency_Type, Location, Service_ID, Status) 
-      VALUES (?, ?, ?, ?, ?, 'Reported')
-    `;
-    
-    db.query(query, [resident_id, comprehensiveDescription, emergency_type, location, service_id], (err, result) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Failed to report incident' });
-      }
-      
-      res.status(201).json({
-        success: true,
-        incident_id: result.insertId,
-        message: `Emergency reported successfully! Help is on the way to ${location}`,
-        service_id: service_id
-      });
-    });
   },
 
-  // Get all incidents (for handler)
-  getAllIncidents: (req, res) => {
-    const query = `
-      SELECT 
-        ir.Incident_ID, ir.Date_Time, ir.Description, ir.Emergency_Type, 
-        ir.Location, ir.Status,
-        r.Name as Resident_Name, r.Phone_number, r.Address,
-        es.Service_Name, es.Service_Type, es.Contact_Number as Service_Contact
-      FROM Incident_Report ir
-      JOIN Resident r ON ir.Resident_ID = r.Resident_ID
-      LEFT JOIN Emergency_Service es ON ir.Service_ID = es.Service_ID
-      ORDER BY ir.Date_Time DESC
-    `;
-    
-    db.query(query, (err, results) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to fetch incidents' });
-      }
-      res.json(results);
-    });
-  },
-
-  // Get incidents by resident
-  getIncidentsByResident: (req, res) => {
-    const residentId = req.params.residentId;
-    
-    const query = `
-      SELECT 
-        ir.*, es.Service_Name, es.Contact_Number as Service_Contact
-      FROM Incident_Report ir
-      LEFT JOIN Emergency_Service es ON ir.Service_ID = es.Service_ID
-      WHERE ir.Resident_ID = ?
-      ORDER BY ir.Date_Time DESC
-    `;
-    
-    db.query(query, [residentId], (err, results) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to fetch incidents' });
-      }
-      res.json(results);
-    });
-  },
-
-  // Update incident status
-  updateIncidentStatus: (req, res) => {
-    const incidentId = req.params.id;
-    const { status } = req.body;
-    
-    const query = 'UPDATE Incident_Report SET Status = ? WHERE Incident_ID = ?';
-    
-    db.query(query, [status, incidentId], (err, result) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to update status' });
-      }
+  // Create a new timer session
+  createSession: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const { duration, type, completed } = req.body;
       
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ error: 'Incident not found' });
-      }
-      
-      res.json({ 
-        success: true, 
-        message: `Status updated to: ${status}` 
-      });
-    });
-  },
-
-  // Get incident by ID
-  getIncidentById: (req, res) => {
-    const incidentId = req.params.id;
-    
-    const query = `
-      SELECT 
-        ir.*, 
-        r.Name as Resident_Name, r.Phone_number, r.Address,
-        es.Service_Name, es.Service_Type, es.Contact_Number as Service_Contact
-      FROM Incident_Report ir
-      JOIN Resident r ON ir.Resident_ID = r.Resident_ID
-      LEFT JOIN Emergency_Service es ON ir.Service_ID = es.Service_ID
-      WHERE ir.Incident_ID = ?
-    `;
-    
-    db.query(query, [incidentId], (err, results) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to fetch incident' });
-      }
-      
-      if (results.length === 0) {
-        return res.status(404).json({ error: 'Incident not found' });
-      }
-      
-      res.json(results[0]);
-    });
-  }
-};
-
-module.exports = incidentController;
-```
-
-### Controllers/residentController.js
-```javascript
-const db = require('../config/database');
-
-const residentController = {
-  // Get all residents
-  getAllResidents: (req, res) => {
-    const query = 'SELECT * FROM Resident ORDER BY Name';
-    
-    db.query(query, (err, results) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to fetch residents' });
-      }
-      res.json(results);
-    });
-  },
-
-  // Get resident by ID
-  getResidentById: (req, res) => {
-    const residentId = req.params.id;
-    
-    const query = 'SELECT * FROM Resident WHERE Resident_ID = ?';
-    
-    db.query(query, [residentId], (err, results) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to fetch resident' });
-      }
-      
-      if (results.length === 0) {
-        return res.status(404).json({ error: 'Resident not found' });
-      }
-      
-      res.json(results[0]);
-    });
-  },
-
-  // Get emergency contacts for a resident
-  getResidentContacts: (req, res) => {
-    const residentId = req.params.id;
-    
-    const query = `
-      SELECT 
-        ec.Contact_ID, ec.Name, ec.Contact_Type, ec.Phone_Number,
-        rc.Relationship_Type, rc.Priority_level
-      FROM Resident_Contact rc
-      JOIN Emergency_Contact ec ON rc.Contact_ID = ec.Contact_ID
-      WHERE rc.Resident_ID = ?
-      ORDER BY rc.Priority_level ASC
-    `;
-    
-    db.query(query, [residentId], (err, results) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to fetch contacts' });
-      }
-      res.json(results);
-    });
-  },
-  
-  // Add this to residentController.js
-  createResident: (req, res) => {
-    const { name, address, phone_number, email, house_no } = req.body;
-    
-    const query = `
-      INSERT INTO Resident (Name, Address, Phone_number, Email, House_No) 
-      VALUES (?, ?, ?, ?, ?)
-    `;
-    
-    db.query(query, [name, address, phone_number, email, house_no], (err, result) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to create resident' });
-      }
-      
-      res.status(201).json({
-        success: true,
-        resident_id: result.insertId,
-        message: 'Resident created successfully'
-      });
-    });
-  },
-  
-  // Add emergency contact for resident
-  addEmergencyContact: (req, res) => {
-    const residentId = req.params.id;
-    const { name, contact_type, phone_number, relationship_type, priority_level } = req.body;
-    
-    // First create emergency contact
-    const contactQuery = `
-      INSERT INTO Emergency_Contact (Name, Contact_Type, Phone_Number) 
-      VALUES (?, ?, ?)
-    `;
-    
-    db.query(contactQuery, [name, contact_type, phone_number], (err, contactResult) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to create emergency contact' });
-      }
-      
-      // Then link to resident
-      const residentContactQuery = `
-        INSERT INTO Resident_Contact (Resident_ID, Contact_ID, Relationship_Type, Priority_level) 
-        VALUES (?, ?, ?, ?)
-      `;
-      
-      db.query(residentContactQuery, [residentId, contactResult.insertId, relationship_type, priority_level], (err, result) => {
-        if (err) {
-          console.error(err);
-          return res.status(500).json({ error: 'Failed to link contact to resident' });
+      const session = await prisma.timerSession.create({
+        data: {
+          duration,
+          type,
+          completed,
+          userId
         }
-        
-        res.status(201).json({
-          success: true,
-          contact_id: contactResult.insertId,
-          message: 'Emergency contact added successfully'
-        });
       });
-    });
+      
+      res.status(201).json(session);
+    } catch (error) {
+      console.error('Error creating session:', error);
+      res.status(500).json({ error: 'Failed to create session' });
+    }
+  },
+
+  // Update a timer session
+  updateSession: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { duration, type, completed } = req.body;
+      
+      const session = await prisma.timerSession.update({
+        where: { id: parseInt(id) },
+        data: {
+          duration,
+          type,
+          completed
+        }
+      });
+      
+      res.json(session);
+    } catch (error) {
+      console.error('Error updating session:', error);
+      res.status(500).json({ error: 'Failed to update session' });
+    }
   }
 };
 
-module.exports = residentController;
+module.exports = timerController;
 ```
 
-### Controllers/serviceController.js
+### Controllers/noteController.js
 ```javascript
-const db = require('../config/database');
+const prisma = require('../config/db');
 
-const serviceController = {
-  // Get all emergency services
-  getAllServices: (req, res) => {
-    const query = 'SELECT * FROM Emergency_Service ORDER BY Service_Type';
-    
-    db.query(query, (err, results) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to fetch services' });
-      }
-      res.json(results);
-    });
-  },
-
-  // Get service by ID
-  getServiceById: (req, res) => {
-    const serviceId = req.params.id;
-    
-    const query = 'SELECT * FROM Emergency_Service WHERE Service_ID = ?';
-    
-    db.query(query, [serviceId], (err, results) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to fetch service' });
-      }
-      
-      if (results.length === 0) {
-        return res.status(404).json({ error: 'Service not found' });
-      }
-      
-      res.json(results[0]);
-    });
-  },
-
-  // Update service allocation for incident
-  updateServiceAllocation: (req, res) => {
-    const incidentId = req.params.id;
-    const { service_id } = req.body;
-    
-    const query = 'UPDATE Incident_Report SET Service_ID = ? WHERE Incident_ID = ?';
-    
-    db.query(query, [service_id, incidentId], (err, result) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Failed to update service allocation' });
-      }
-      
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ error: 'Incident not found' });
-      }
-      
-      res.json({ 
-        success: true, 
-        message: 'Service allocation updated successfully' 
+const noteController = {
+  // Get all notes for a user
+  getNotes: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const notes = await prisma.note.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' }
       });
-    });
+      res.json(notes);
+    } catch (error) {
+      console.error('Error fetching notes:', error);
+      res.status(500).json({ error: 'Failed to fetch notes' });
+    }
+  },
+
+  // Create a new note
+  createNote: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const { title, content, subject } = req.body;
+      
+      const note = await prisma.note.create({
+        data: {
+          title,
+          content,
+          subject,
+          userId
+        }
+      });
+      
+      res.status(201).json(note);
+    } catch (error) {
+      console.error('Error creating note:', error);
+      res.status(500).json({ error: 'Failed to create note' });
+    }
+  },
+
+  // Update a note
+  updateNote: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { title, content, subject } = req.body;
+      
+      const note = await prisma.note.update({
+        where: { id: parseInt(id) },
+        data: {
+          title,
+          content,
+          subject
+        }
+      });
+      
+      res.json(note);
+    } catch (error) {
+      console.error('Error updating note:', error);
+      res.status(500).json({ error: 'Failed to update note' });
+    }
+  },
+
+  // Delete a note
+  deleteNote: async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      await prisma.note.delete({
+        where: { id: parseInt(id) }
+      });
+      
+      res.json({ message: 'Note deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      res.status(500).json({ error: 'Failed to delete note' });
+    }
   }
 };
 
-module.exports = serviceController;
+module.exports = noteController;
+```
+
+### Controllers/userController.js
+```javascript
+const prisma = require('../config/db');
+const bcrypt = require('bcrypt');
+
+const userController = {
+  // Get user profile
+  getProfile: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          createdAt: true
+        }
+      });
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json(user);
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      res.status(500).json({ error: 'Failed to fetch profile' });
+    }
+  },
+
+  // Update user profile
+  updateProfile: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const { name, email } = req.body;
+      
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          name,
+          email
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          createdAt: true
+        }
+      });
+      
+      res.json(user);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      res.status(500).json({ error: 'Failed to update profile' });
+    }
+  },
+
+  // Update user password
+  updatePassword: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const { currentPassword, newPassword } = req.body;
+      
+      // Get current user with password
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+      
+      // Check if current password is correct
+      const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+      if (!isPasswordValid) {
+        return res.status(400).json({ error: 'Current password is incorrect' });
+      }
+      
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      
+      // Update password
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          password: hashedPassword
+        }
+      });
+      
+      res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+      console.error('Error updating password:', error);
+      res.status(500).json({ error: 'Failed to update password' });
+    }
+  }
+};
+
+module.exports = userController;
 ```
 
 ## Frontend Code
 
-### Emergency Frontend Structure
+### PPMS Frontend Structure
 ```
-emergency-frontend/
-├── public/
-│   └── index.html                  # HTML template
-├── src/
-│   ├── components/
-│   │   ├── common/
-│   │   │   ├── Header.jsx          # Shared header component
-│   │   │   └── Navigation.jsx      # Navigation component
-│   │   └── admin/                  # Admin-specific components
-│   ├── pages/
-│   │   ├── admin/                  # Admin pages
-│   │   │   ├── AdminLayout.jsx     # Admin layout wrapper
-│   │   │   ├── AdminDashboard.jsx  # Admin dashboard
-│   │   │   ├── IncidentsManagement.jsx
-│   │   │   ├── ResidentsManagement.jsx
-│   │   │   ├── ContactsManagement.jsx
-│   │   │   └── ServicesManagement.jsx
-│   │   ├── EmergencyReport.jsx     # Main emergency reporting page
-│   │   └── IncidentStatus.jsx      # Status checking page
-│   ├── services/
-│   │   └── api.js                  # API service functions
-│   ├── App.jsx                     # Main app component with routing
-│   ├── main.jsx                    # React app entry point
-│   └── index.css                   # Global styles
-├── package.json                    # Frontend dependencies
-└── vite.config.js                  # Vite configuration
+ppms/
+├── app/                          # Next.js app router pages
+│   ├── auth/                     # Authentication pages
+│   │   ├── login/                # Login page
+│   │   │   └── page.tsx
+│   │   └── register/             # Registration page
+│   │       └── page.tsx
+│   ├── db-demo/                  # Database demo page
+│   │   └── page.tsx
+│   ├── notes/                    # Notes management pages
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── onboarding/               # Onboarding flow
+│   │   └── page.tsx
+│   ├── profile/                  # User profile page
+│   │   └── page.tsx
+│   ├── progress/                 # Progress dashboard
+│   │   └── page.tsx
+│   ├── sessions/                 # Study sessions page
+│   │   └── page.tsx
+│   ├── settings/                 # User settings page
+│   │   └── page.tsx
+│   ├── splash/                   # Splash screen
+│   │   └── page.tsx
+│   ├── timer/                    # Pomodoro timer page
+│   │   └── page.tsx
+│   ├── user-management/          # User management page
+│   │   └── page.tsx
+│   ├── globals.css               # Global CSS styles
+│   ├── layout.tsx                # Root layout component
+│   ├── loading.tsx               # Global loading component
+│   └── page.tsx                  # Home page
+├── components/                   # Reusable UI components
+│   ├── ui/                       # Primitive UI components
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   ├── dialog.tsx
+│   │   ├── input.tsx
+│   │   ├── sidebar.tsx
+│   │   └── ...                   # Other shadcn/ui components
+│   ├── animated-background.tsx   # Animated background component
+│   ├── footer.tsx                # Footer component
+│   ├── onboarding-check.tsx      # Onboarding checklist
+│   ├── providers.tsx             # Context providers
+│   ├── sidebar.tsx               # Main sidebar component
+│   └── theme-provider.tsx        # Theme provider
+├── hooks/                        # Custom React hooks
+│   ├── use-mobile.tsx
+│   └── use-toast.ts
+├── lib/                          # Utility functions and database
+│   ├── db.test.ts                # Database tests
+│   ├── db.ts                     # Database implementation
+│   └── utils.ts                  # Utility functions
+├── public/                       # Static assets
+│   ├── cascade_breathe_future.mp3 # Audio notification
+│   ├── placeholder-logo.png      # Placeholder images
+│   └── ...                       # Other static assets
+├── styles/                       # Global styles
+│   └── globals.css
+├── .env.example                  # Environment variables example
+├── .gitignore                    # Git ignore rules
+├── next.config.mjs               # Next.js configuration
+├── package.json                  # Project dependencies and scripts
+├── pnpm-lock.yaml                # PNPM lock file
+├── postcss.config.mjs            # PostCSS configuration
+├── tailwind.config.ts            # Tailwind CSS configuration
+├── tsconfig.json                 # TypeScript configuration
+└── ...                           # Other configuration files
 ```
 
-### Sample Frontend Component (EmergencyReport.jsx)
-```jsx
-import React, { useState } from 'react';
-import { reportIncident } from '../services/api';
+### Sample Frontend Component (TimerPage.tsx)
+```tsx
+'use client';
 
-const EmergencyReport = () => {
-  const [formData, setFormData] = useState({
-    resident_id: '',
-    emergency_type: '',
-    description: '',
-    location: '',
-    user_name: ''
-  });
-  
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
+import { useState, useEffect, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
+const TimerPage = () => {
+  const [timeLeft, setTimeLeft] = useState(25 * 60); // 25 minutes in seconds
+  const [isActive, setIsActive] = useState(false);
+  const [mode, setMode] = useState<'work' | 'break'>('work');
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const { toast } = useToast();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess(false);
-    
-    try {
-      const response = await reportIncident(formData);
-      if (response.success) {
-        setSuccess(true);
-        setFormData({
-          resident_id: '',
-          emergency_type: '',
-          description: '',
-          location: '',
-          user_name: ''
-        });
+  useEffect(() => {
+    if (isActive && timeLeft > 0) {
+      intervalRef.current = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+    } else if (timeLeft === 0) {
+      clearInterval(intervalRef.current as NodeJS.Timeout);
+      setIsActive(false);
+      playNotificationSound();
+      toast({
+        title: mode === 'work' ? 'Work session completed!' : 'Break time over!',
+        description: mode === 'work' 
+          ? 'Time for a break!' 
+          : 'Back to work!',
+      });
+      // Auto-switch mode
+      setMode(mode === 'work' ? 'break' : 'work');
+      setTimeLeft(mode === 'work' ? 5 * 60 : 25 * 60); // 5 min break, 25 min work
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
       }
-    } catch (err) {
-      setError('Failed to report incident. Please try again.');
-    } finally {
-      setLoading(false);
+    };
+  }, [isActive, timeLeft, mode]);
+
+  const playNotificationSound = () => {
+    try {
+      const audio = new Audio('/cascade_breathe_future.mp3');
+      audio.play().catch(e => console.log('Audio play failed:', e));
+    } catch (error) {
+      console.log('Failed to play notification sound:', error);
     }
   };
 
+  const toggleTimer = () => {
+    setIsActive(!isActive);
+  };
+
+  const resetTimer = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    setIsActive(false);
+    setTimeLeft(mode === 'work' ? 25 * 60 : 5 * 60);
+  };
+
+  const switchMode = () => {
+    setMode(mode === 'work' ? 'break' : 'work');
+    setTimeLeft(mode === 'work' ? 5 * 60 : 25 * 60);
+    setIsActive(false);
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
-    <div className="emergency-report">
-      <h2>Report Emergency</h2>
-      {success && <div className="success-message">Emergency reported successfully!</div>}
-      {error && <div className="error-message">{error}</div>}
-      
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="resident_id">Resident ID:</label>
-          <input
-            type="text"
-            id="resident_id"
-            name="resident_id"
-            value={formData.resident_id}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        
-        <div>
-          <label htmlFor="user_name">Your Name:</label>
-          <input
-            type="text"
-            id="user_name"
-            name="user_name"
-            value={formData.user_name}
-            onChange={handleChange}
-          />
-        </div>
-        
-        <div>
-          <label htmlFor="emergency_type">Emergency Type:</label>
-          <select
-            id="emergency_type"
-            name="emergency_type"
-            value={formData.emergency_type}
-            onChange={handleChange}
-            required
-          >
-            <option value="">Select Emergency Type</option>
-            <option value="Fire">Fire</option>
-            <option value="Medical">Medical</option>
-            <option value="Police">Police</option>
-            <option value="Accident">Accident</option>
-            <option value="Natural Disaster">Natural Disaster</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-        
-        <div>
-          <label htmlFor="location">Location:</label>
-          <input
-            type="text"
-            id="location"
-            name="location"
-            value={formData.location}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        
-        <div>
-          <label htmlFor="description">Description:</label>
-          <textarea
-            id="description"
-            name="description"
-            value={formData.description}
-            onChange={handleChange}
-            rows="4"
-          />
-        </div>
-        
-        <button type="submit" disabled={loading}>
-          {loading ? 'Reporting...' : 'Report Emergency'}
-        </button>
-      </form>
+    <div className="container mx-auto py-8">
+      <Card className="max-w-md mx-auto">
+        <CardHeader>
+          <CardTitle className="text-center">
+            {mode === 'work' ? 'Work Timer' : 'Break Timer'}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-center">
+          <div className="text-6xl font-bold mb-8">
+            {formatTime(timeLeft)}
+          </div>
+          <div className="flex justify-center gap-4">
+            <Button onClick={toggleTimer}>
+              {isActive ? 'Pause' : 'Start'}
+            </Button>
+            <Button onClick={resetTimer} variant="outline">
+              Reset
+            </Button>
+            <Button onClick={switchMode} variant="outline">
+              Switch Mode
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };
 
-export default EmergencyReport;
+export default TimerPage;
 ```
 
-### API Service (services/api.js)
-```javascript
-import axios from 'axios';
+### API Service (lib/api.ts)
+```typescript
+import { Note, TimerSession } from '@prisma/client';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json'
+// Timer API
+export const getSessions = async (): Promise<TimerSession[]> => {
+  const response = await fetch(`${API_BASE_URL}/sessions`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch sessions');
   }
-});
-
-// Incident API
-export const reportIncident = (incidentData) => {
-  return api.post('/incidents/report', incidentData);
+  return response.json();
 };
 
-export const getAllIncidents = () => {
-  return api.get('/incidents');
+export const createSession = async (sessionData: Partial<TimerSession>): Promise<TimerSession> => {
+  const response = await fetch(`${API_BASE_URL}/sessions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(sessionData),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create session');
+  }
+  return response.json();
 };
 
-export const getIncidentById = (id) => {
-  return api.get(`/incidents/${id}`);
+export const updateSession = async (id: number, sessionData: Partial<TimerSession>): Promise<TimerSession> => {
+  const response = await fetch(`${API_BASE_URL}/sessions/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(sessionData),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update session');
+  }
+  return response.json();
 };
 
-export const updateIncidentStatus = (id, status) => {
-  return api.put(`/incidents/${id}/status`, { status });
+// Notes API
+export const getNotes = async (): Promise<Note[]> => {
+  const response = await fetch(`${API_BASE_URL}/notes`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch notes');
+  }
+  return response.json();
 };
 
-// Resident API
-export const getAllResidents = () => {
-  return api.get('/residents');
+export const createNote = async (noteData: Partial<Note>): Promise<Note> => {
+  const response = await fetch(`${API_BASE_URL}/notes`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(noteData),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create note');
+  }
+  return response.json();
 };
 
-export const getResidentById = (id) => {
-  return api.get(`/residents/${id}`);
+export const updateNote = async (id: number, noteData: Partial<Note>): Promise<Note> => {
+  const response = await fetch(`${API_BASE_URL}/notes/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(noteData),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update note');
+  }
+  return response.json();
 };
 
-export const getResidentContacts = (id) => {
-  return api.get(`/residents/${id}/contacts`);
+export const deleteNote = async (id: number): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/notes/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete note');
+  }
 };
 
-export const createResident = (residentData) => {
-  return api.post('/residents', residentData);
+// User API
+export const getProfile = async () => {
+  const response = await fetch(`${API_BASE_URL}/user/profile`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch profile');
+  }
+  return response.json();
 };
 
-export const addEmergencyContact = (residentId, contactData) => {
-  return api.post(`/residents/${residentId}/contacts`, contactData);
+export const updateProfile = async (profileData: { name?: string; email?: string }) => {
+  const response = await fetch(`${API_BASE_URL}/user/profile`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(profileData),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update profile');
+  }
+  return response.json();
 };
 
-// Service API
-export const getAllServices = () => {
-  return api.get('/services');
+export const updatePassword = async (passwordData: { currentPassword: string; newPassword: string }) => {
+  const response = await fetch(`${API_BASE_URL}/user/password`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(passwordData),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update password');
+  }
+  return response.json();
 };
 
-export const getServiceById = (id) => {
-  return api.get(`/services/${id}`);
+export default {
+  getSessions,
+  createSession,
+  updateSession,
+  getNotes,
+  createNote,
+  updateNote,
+  deleteNote,
+  getProfile,
+  updateProfile,
+  updatePassword,
 };
-
-export const updateServiceAllocation = (incidentId, serviceId) => {
-  return api.put(`/incidents/${incidentId}/service`, { service_id: serviceId });
-};
-
-export default api;
 ```
 
-### Main App Component (App.jsx)
-```javascript
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import EmergencyReport from './pages/EmergencyReport';
-import IncidentStatus from './pages/IncidentStatus';
-import AdminLayout from './pages/admin/AdminLayout';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import IncidentsManagement from './pages/admin/IncidentsManagement';
-import ResidentsManagement from './pages/admin/ResidentsManagement';
-import ServicesManagement from './pages/admin/ServicesManagement';
-import Header from './components/common/Header';
-import Navigation from './components/common/Navigation';
-import './App.css';
+### Main App Layout (app/layout.tsx)
+```tsx
+import './globals.css';
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import { ThemeProvider } from '@/components/theme-provider';
+import { Sidebar } from '@/components/sidebar';
+import { Toaster } from '@/components/ui/toaster';
+import { Providers } from '@/components/providers';
 
-function App() {
+const inter = Inter({ subsets: ['latin'] });
+
+export const metadata: Metadata = {
+  title: 'StudyMate - Personal Productivity Management System',
+  description: 'Enhance your study habits and time management skills',
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <Router>
-      <div className="App">
-        <Header />
-        <Navigation />
-        
-        <main>
-          <Routes>
-            <Route path="/" element={<EmergencyReport />} />
-            <Route path="/status" element={<IncidentStatus />} />
-            
-            {/* Admin Routes */}
-            <Route path="/admin" element={<AdminLayout />}>
-              <Route index element={<AdminDashboard />} />
-              <Route path="incidents" element={<IncidentsManagement />} />
-              <Route path="residents" element={<ResidentsManagement />} />
-              <Route path="services" element={<ServicesManagement />} />
-            </Route>
-          </Routes>
-        </main>
-      </div>
-    </Router>
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className}>
+        <Providers>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <div className="flex min-h-screen">
+              <Sidebar />
+              <main className="flex-1 p-4 md:p-8">
+                {children}
+              </main>
+            </div>
+            <Toaster />
+          </ThemeProvider>
+        </Providers>
+      </body>
+    </html>
   );
 }
-
-export default App;
 ```
