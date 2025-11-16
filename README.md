@@ -98,13 +98,73 @@ pnpm start
 ## Project Structure
 ```
 study-mate/
-├── app/                 # Next.js app router pages
-├── components/          # Reusable UI components
-├── lib/                 # Utility functions and database
-├── public/              # Static assets
-├── styles/              # Global styles
-├── hooks/               # Custom React hooks
-└── ...
+├── app/                          # Next.js app router pages
+│   ├── auth/                     # Authentication pages
+│   │   ├── login/                # Login page
+│   │   │   └── page.tsx
+│   │   └── register/             # Registration page
+│   │       └── page.tsx
+│   ├── db-demo/                  # Database demo page
+│   │   └── page.tsx
+│   ├── notes/                    # Notes management pages
+│   │   ├── loading.tsx
+│   │   └── page.tsx
+│   ├── onboarding/               # Onboarding flow
+│   │   └── page.tsx
+│   ├── profile/                  # User profile page
+│   │   └── page.tsx
+│   ├── progress/                 # Progress dashboard
+│   │   └── page.tsx
+│   ├── sessions/                 # Study sessions page
+│   │   └── page.tsx
+│   ├── settings/                 # User settings page
+│   │   └── page.tsx
+│   ├── splash/                   # Splash screen
+│   │   └── page.tsx
+│   ├── timer/                    # Pomodoro timer page
+│   │   └── page.tsx
+│   ├── user-management/          # User management page
+│   │   └── page.tsx
+│   ├── globals.css               # Global CSS styles
+│   ├── layout.tsx                # Root layout component
+│   ├── loading.tsx               # Global loading component
+│   └── page.tsx                  # Home page
+├── components/                   # Reusable UI components
+│   ├── ui/                       # Primitive UI components
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   ├── dialog.tsx
+│   │   ├── input.tsx
+│   │   ├── sidebar.tsx
+│   │   └── ...                   # Other shadcn/ui components
+│   ├── animated-background.tsx   # Animated background component
+│   ├── footer.tsx                # Footer component
+│   ├── onboarding-check.tsx      # Onboarding checklist
+│   ├── providers.tsx             # Context providers
+│   ├── sidebar.tsx               # Main sidebar component
+│   └── theme-provider.tsx        # Theme provider
+├── hooks/                        # Custom React hooks
+│   ├── use-mobile.tsx
+│   └── use-toast.ts
+├── lib/                          # Utility functions and database
+│   ├── db.test.ts                # Database tests
+│   ├── db.ts                     # Database implementation
+│   └── utils.ts                  # Utility functions
+├── public/                       # Static assets
+│   ├── cascade_breathe_future.mp3 # Audio notification
+│   ├── placeholder-logo.png      # Placeholder images
+│   └── ...                       # Other static assets
+├── styles/                       # Global styles
+│   └── globals.css
+├── .env.example                  # Environment variables example
+├── .gitignore                    # Git ignore rules
+├── next.config.mjs               # Next.js configuration
+├── package.json                  # Project dependencies and scripts
+├── pnpm-lock.yaml                # PNPM lock file
+├── postcss.config.mjs            # PostCSS configuration
+├── tailwind.config.ts            # Tailwind CSS configuration
+├── tsconfig.json                 # TypeScript configuration
+└── ...                           # Other configuration files
 ```
 
 ## Key Features Implementation
