@@ -13,7 +13,8 @@ class PostgreSQLDatabase {
       notes: [],
       goals: [],
       sessions: [],
-      users: []
+      users: [],
+      students: [] // New table for Indian names demo
     };
     this.initializeDemoData();
   }
@@ -58,6 +59,120 @@ class PostgreSQLDatabase {
 
     this.data.users = [
       { id: 1, name: "John Doe", email: "john@example.com", isOnboarded: true }
+    ];
+
+    // Add 10 Indian names with proper normalization and constraints
+    this.data.students = [
+      { 
+        id: 1, 
+        firstName: "Aarav", 
+        lastName: "Patel", 
+        email: "aarav.patel@example.com", 
+        phone: "9876543210", 
+        dateOfBirth: "2000-05-15", 
+        enrollmentDate: "2023-08-01",
+        course: "Computer Science",
+        grade: "A"
+      },
+      { 
+        id: 2, 
+        firstName: "Aditi", 
+        lastName: "Sharma", 
+        email: "aditi.sharma@example.com", 
+        phone: "9876543211", 
+        dateOfBirth: "1999-12-22", 
+        enrollmentDate: "2023-08-01",
+        course: "Mathematics",
+        grade: "A+"
+      },
+      { 
+        id: 3, 
+        firstName: "Arjun", 
+        lastName: "Reddy", 
+        email: "arjun.reddy@example.com", 
+        phone: "9876543212", 
+        dateOfBirth: "2001-03-10", 
+        enrollmentDate: "2023-08-01",
+        course: "Physics",
+        grade: "B+"
+      },
+      { 
+        id: 4, 
+        firstName: "Diya", 
+        lastName: "Verma", 
+        email: "diya.verma@example.com", 
+        phone: "9876543213", 
+        dateOfBirth: "2000-07-18", 
+        enrollmentDate: "2023-08-01",
+        course: "Chemistry",
+        grade: "A"
+      },
+      { 
+        id: 5, 
+        firstName: "Ishaan", 
+        lastName: "Kumar", 
+        email: "ishaan.kumar@example.com", 
+        phone: "9876543214", 
+        dateOfBirth: "2001-11-05", 
+        enrollmentDate: "2023-08-01",
+        course: "Biology",
+        grade: "B"
+      },
+      { 
+        id: 6, 
+        firstName: "Kavya", 
+        lastName: "Iyer", 
+        email: "kavya.iyer@example.com", 
+        phone: "9876543215", 
+        dateOfBirth: "2000-09-30", 
+        enrollmentDate: "2023-08-01",
+        course: "English Literature",
+        grade: "A+"
+      },
+      { 
+        id: 7, 
+        firstName: "Rohan", 
+        lastName: "Singh", 
+        email: "rohan.singh@example.com", 
+        phone: "9876543216", 
+        dateOfBirth: "2001-01-25", 
+        enrollmentDate: "2023-08-01",
+        course: "History",
+        grade: "B+"
+      },
+      { 
+        id: 8, 
+        firstName: "Saanvi", 
+        lastName: "Nair", 
+        email: "saanvi.nair@example.com", 
+        phone: "9876543217", 
+        dateOfBirth: "1999-04-12", 
+        enrollmentDate: "2023-08-01",
+        course: "Economics",
+        grade: "A"
+      },
+      { 
+        id: 9, 
+        firstName: "Vihaan", 
+        lastName: "Gupta", 
+        email: "vihaan.gupta@example.com", 
+        phone: "9876543218", 
+        dateOfBirth: "2001-08-08", 
+        enrollmentDate: "2023-08-01",
+        course: "Political Science",
+        grade: "B"
+      },
+      { 
+        id: 10, 
+        firstName: "Zara", 
+        lastName: "Desai", 
+        email: "zara.desai@example.com", 
+        phone: "9876543219", 
+        dateOfBirth: "2000-02-14", 
+        enrollmentDate: "2023-08-01",
+        course: "Psychology",
+        grade: "A+"
+      }
     ];
 
     // Save initial data to localStorage (only in browser)
@@ -108,6 +223,50 @@ class PostgreSQLDatabase {
       }
     }
     
+    // Validate student data with proper constraints
+    if (table === 'students') {
+      // First name validation
+      if (!record.firstName || record.firstName.trim().length < 2) {
+        throw new Error('First name must be at least 2 characters long');
+      }
+      
+      // Last name validation
+      if (!record.lastName || record.lastName.trim().length < 1) {
+        throw new Error('Last name must be at least 1 character long');
+      }
+      
+      // Email validation
+      if (!record.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(record.email)) {
+        throw new Error('Please enter a valid email address');
+      }
+      
+      // Phone validation (10 digits)
+      if (!record.phone || !/^\d{10}$/.test(record.phone)) {
+        throw new Error('Phone number must be exactly 10 digits');
+      }
+      
+      // Date of birth validation
+      if (!record.dateOfBirth) {
+        throw new Error('Date of birth is required');
+      }
+      
+      // Enrollment date validation
+      if (!record.enrollmentDate) {
+        throw new Error('Enrollment date is required');
+      }
+      
+      // Course validation
+      if (!record.course || record.course.trim().length < 2) {
+        throw new Error('Course must be at least 2 characters long');
+      }
+      
+      // Grade validation
+      const validGrades = ['A+', 'A', 'B+', 'B', 'C+', 'C', 'D', 'F'];
+      if (!record.grade || !validGrades.includes(record.grade)) {
+        throw new Error('Grade must be one of: A+, A, B+, B, C+, C, D, F');
+      }
+    }
+    
     this.data[table].push(record);
     this.saveToStorage(); // Persist changes
     return record;
@@ -128,6 +287,44 @@ class PostgreSQLDatabase {
           }
           if (updates.email !== undefined && (!updates.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.email))) {
             throw new Error('Please enter a valid email address');
+          }
+        }
+        
+        // Validate student data updates with proper constraints
+        if (table === 'students') {
+          const updatedRecord = { ...tableData[i], ...updates };
+          
+          // First name validation
+          if (updates.firstName !== undefined && (!updates.firstName || updates.firstName.trim().length < 2)) {
+            throw new Error('First name must be at least 2 characters long');
+          }
+          
+          // Last name validation
+          if (updates.lastName !== undefined && (!updates.lastName || updates.lastName.trim().length < 1)) {
+            throw new Error('Last name must be at least 1 character long');
+          }
+          
+          // Email validation
+          if (updates.email !== undefined && (!updates.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.email))) {
+            throw new Error('Please enter a valid email address');
+          }
+          
+          // Phone validation (10 digits)
+          if (updates.phone !== undefined && (!updates.phone || !/^\d{10}$/.test(updates.phone))) {
+            throw new Error('Phone number must be exactly 10 digits');
+          }
+          
+          // Course validation
+          if (updates.course !== undefined && (!updates.course || updates.course.trim().length < 2)) {
+            throw new Error('Course must be at least 2 characters long');
+          }
+          
+          // Grade validation
+          if (updates.grade !== undefined) {
+            const validGrades = ['A+', 'A', 'B+', 'B', 'C+', 'C', 'D', 'F'];
+            if (!validGrades.includes(updates.grade)) {
+              throw new Error('Grade must be one of: A+, A, B+, B, C+, C, D, F');
+            }
           }
         }
         

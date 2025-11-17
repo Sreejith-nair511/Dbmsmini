@@ -38,11 +38,27 @@ export default function DatabaseDemo() {
       } else if (command.toLowerCase().startsWith("insert")) {
         // Simple INSERT parser for demo
         const tableName = command.split("into")[1].trim().split(" ")[0];
-        const record = {
-          title: "New Item",
-          content: "Added via SQL command",
-          date: new Date().toISOString().split('T')[0]
-        };
+        let record: any;
+        
+        if (tableName === "students") {
+          record = {
+            firstName: "New",
+            lastName: "Student",
+            email: "new.student@example.com",
+            phone: "9999999999",
+            dateOfBirth: "2000-01-01",
+            enrollmentDate: new Date().toISOString().split('T')[0],
+            course: "Demo Course",
+            grade: "B+"
+          };
+        } else {
+          record = {
+            title: "New Item",
+            content: "Added via SQL command",
+            date: new Date().toISOString().split('T')[0]
+          };
+        }
+        
         output = sqlCommands.insert(tableName, record);
         toast({
           title: "Success",
@@ -66,14 +82,14 @@ export default function DatabaseDemo() {
       }
       
       setResult(output);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error executing command:", error);
       toast({
         title: "Error",
-        description: "Invalid command syntax",
+        description: error.message || "Invalid command syntax",
         variant: "destructive"
       });
-      setResult({ error: "Invalid command syntax" });
+      setResult({ error: error.message || "Invalid command syntax" });
     }
   };
 
@@ -137,6 +153,79 @@ export default function DatabaseDemo() {
     }
   };
 
+  // Insert a new student
+  const insertStudent = () => {
+    const newStudent = {
+      firstName: "Demo",
+      lastName: "Student",
+      email: "demo.student@example.com",
+      phone: "8888888888",
+      dateOfBirth: "1999-01-01",
+      enrollmentDate: new Date().toISOString().split('T')[0],
+      course: "Computer Science",
+      grade: "A"
+    };
+    
+    try {
+      const result = sqlCommands.insert("students", newStudent);
+      toast({
+        title: "Success",
+        description: `Inserted student with ID: ${result.id}`
+      });
+      
+      // Refresh data
+      setResult(sqlCommands.select("students"));
+      setSelectedTable("students");
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Update first student
+  const updateFirstStudent = () => {
+    const students = sqlCommands.select("students");
+    if (students.length > 0) {
+      const firstStudent = students[0];
+      sqlCommands.update(
+        "students", 
+        (student: any) => student.id === firstStudent.id,
+        { course: "Updated Course" }
+      );
+      
+      toast({
+        title: "Success",
+        description: `Updated student ID: ${firstStudent.id}`
+      });
+      
+      // Refresh data
+      setResult(sqlCommands.select("students"));
+    }
+  };
+
+  // Delete last student
+  const deleteLastStudent = () => {
+    const students = sqlCommands.select("students");
+    if (students.length > 0) {
+      const lastStudent = students[students.length - 1];
+      sqlCommands.delete(
+        "students",
+        (student: any) => student.id === lastStudent.id
+      );
+      
+      toast({
+        title: "Success",
+        description: `Deleted student ID: ${lastStudent.id}`
+      });
+      
+      // Refresh data
+      setResult(sqlCommands.select("students"));
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="glass-card p-6">
@@ -157,7 +246,7 @@ export default function DatabaseDemo() {
                 id="command"
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
-                placeholder="e.g., SELECT * FROM notes; SHOW TABLES; DESCRIBE notes;"
+                placeholder="e.g., SELECT * FROM notes; SHOW TABLES; DESCRIBE students;"
                 className="bg-black/30 text-white border-gray-700"
                 rows={3}
               />
@@ -187,9 +276,11 @@ export default function DatabaseDemo() {
               <h3 className="text-lg font-semibold text-white mb-2">Example Commands:</h3>
               <ul className="text-sm text-gray-400 space-y-1">
                 <li>• SELECT * FROM notes</li>
+                <li>• SELECT * FROM students</li>
                 <li>• SHOW TABLES</li>
                 <li>• DESCRIBE goals</li>
-                <li>• INSERT INTO notes VALUES (...)</li>
+                <li>• DESCRIBE students</li>
+                <li>• INSERT INTO students VALUES (...)</li>
                 <li>• CLEAR (reset database)</li>
               </ul>
             </div>
@@ -210,6 +301,15 @@ export default function DatabaseDemo() {
             </Button>
             <Button onClick={deleteLastNote} className="w-full glass-button justify-start" variant="ghost">
               DELETE Last Note
+            </Button>
+            <Button onClick={insertStudent} className="w-full glass-button justify-start" variant="ghost">
+              INSERT New Student
+            </Button>
+            <Button onClick={updateFirstStudent} className="w-full glass-button justify-start" variant="ghost">
+              UPDATE First Student
+            </Button>
+            <Button onClick={deleteLastStudent} className="w-full glass-button justify-start" variant="ghost">
+              DELETE Last Student
             </Button>
             <Button 
               onClick={() => {
